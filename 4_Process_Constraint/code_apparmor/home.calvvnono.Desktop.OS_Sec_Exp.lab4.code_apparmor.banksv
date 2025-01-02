@@ -1,0 +1,13 @@
+/home/calvvnono/Desktop/OS_Sec_Exp/lab4/code_apparmor/banksv {
+
+  # 引入了 apache2-common 和 base 抽象，这些抽象包含了一些常见的权限设置。
+  include <abstractions/apache2-common>  
+  include <abstractions/base>  
+  
+  # 禁止对/tmp目录下的任何文件进行读写操作  
+  deny /tmp/** mrwx,  
+
+  # 允许对code_task5目录下的所有文件进行只读访问
+  /home/calvvnono/Desktop/OS_Sec_Exp/lab4/code_apparmor/** mr,
+
+}

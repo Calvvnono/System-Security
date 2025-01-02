@@ -1,0 +1,11 @@
+原始 vulp.c、attack2.c 和 target.sh 在不同 fs.protected_symlinks 设置下的行为差异：
+
+1. **vulp.c + fs.protected_symlinks = 1：攻击失败，No permission。**
+   - 原始的 vulp.c 没有降权操作。access 和 fopen 都是以 root 权限执行。尽管 fs.protected_symlinks = 1 阻止了在 /tmp 这类目录中跟随指向非自己拥有的文件的符号链接，但是因为 vulp.c 是以 root 权限运行的，它可以访问和操作任何文件，所以这个保护机制对它无效。
+   - 即使 attack2.c 成功将 /tmp/XYZ 替换为指向 /etc/passwd 的软链接，因为 vulp.c 一直拥有 root 权限，access 也会返回真，fopen 也能成功打开 /etc/passwd。但由于 vulp.c 中 fopen 使用的是 a+ 模式，这导致攻击者无法覆盖 /etc/passwd 的原有内容，只能在后面追加，不会造成严重破坏。所以只显示 "No permission"，这是 access 对 /etc/passwd 返回的结果，因为普通用户通常没有对它的写权限。
+   
+2. **vulp_def.c (防御版本) + fs.protected_symlinks = 0：攻击成功。**
+   - vulp_def.c 引入了降权操作，先降到普通用户权限进行 access 检查，再恢复 root 权限进行 fopen 和 fwrite。这创造了一个时间窗口。fs.protected_symlinks = 0 时，内核不限制符号链接的跟随。攻击者可以利用这个时间窗口，通过 attack2.c 将 /tmp/XYZ 软链接到 /etc/passwd。当 vulp_def.c 以 root 权限 fopen 时，就会打开 /etc/passwd 并写入数据，导致密码文件被篡改。
+   
+3. **vulp_def.c (防御版本) + fs.protected_symlinks = 1：攻击失败，Segmentation Fault。**
+   - fs.protected_symlinks = 1 启用了符号链接保护。即使 attack2.c 尝试进行符号链接交换，当 vulp_def.c 在降权期间执行 access 时, /tmp/XYZ 还是指向攻击者自己的文件，所以 access 会返回真。但当 vulp_def.c 恢复 root 权限后，由于 fs.protected_symlinks = 1 的保护，fopen 无法跟随 /tmp/XYZ 到 /etc/passwd。因为此时 /tmp/XYZ 虽然指向 /etc/passwd, 但是 vulp_def.c 的真实 UID 并不是 /etc/passwd 的拥有者。fopen 会失败并返回 NULL。随后，vulp_def.c 尝试对 NULL 指针进行 fwrite 操作，导致Segmentation Fault。
